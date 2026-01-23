@@ -1,4 +1,4 @@
-### Data Scraping Engineer – Trial Test 
+## Data Scraping Engineer – Trial Test 
 
 - **Auto-Authentication**: Uses Playwright to solve reCAPTCHA v2 and retrieve session tokens.
 - **Session Management**: Automatically refreshes expired sessions (handles `403` errors) without restarting the script.
@@ -36,6 +36,12 @@ python main.py
 4. Solve the image puzzle if challenged.
 5. The browser will close automatically once the token is captured.
 6. The script will proceed to scrape all pages.
+
+## Design Choices
+
+* **Hybrid Architecture (Playwright + Requests):** I used **Playwright** specifically to handle the dynamic reCAPTCHA v2 challenge and retrieve session cookies. Once authenticated, the script switches to **Requests** for the actual data extraction. This combines the reliability of a browser for login with the speed and efficiency of standard HTTP requests for pagination.
+* **Resilient Session Handling:** The solution includes a self-healing mechanism. If the session token expires during scraping (causing a `403` error), the script automatically pauses, re-launches the browser to get a fresh token, and resumes exactly where it left off.
+* **Politeness:** Implemented randomized delays between requests to adhere to ethical scraping guidelines and prevent rate-limiting.
 
 ## Output
 Data is saved to `{query}.json` (e.g., `tech.json`). The format is:
