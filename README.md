@@ -1,3 +1,5 @@
+### Data Scraping Engineer – Trial Test 
+
 - **Auto-Authentication**: Uses Playwright to solve reCAPTCHA v2 and retrieve session tokens.
 - **Session Management**: Automatically refreshes expired sessions (handles `403` errors) without restarting the script.
 - **Politeness**: Random delays between requests to mimic human behavior.
