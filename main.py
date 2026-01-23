@@ -1,3 +1,4 @@
+import json
 import requests
 from playwright.sync_api import sync_playwright
 
@@ -43,47 +44,76 @@ def get_recaptcha_token():
         browser.close()
         return token
 
-def make_request(token, search):
-    if not token:
-        print("Failed to get token.")
-        return
 
-    headers = {
-        'accept': '*/*',
-        'accept-language': 'en-US,en;q=0.9',
-        'cache-control': 'no-cache',
-        'pragma': 'no-cache',
-        'priority': 'u=1, i',
-        'referer': 'https://scraping-trial-test.vercel.app/search/results?q=silver',
-        'sec-ch-ua': '"Not(A:Brand";v="8", "Chromium";v="144", "Microsoft Edge";v="144"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0',
-        'x-recaptcha-token': token,
-    }
 
-    params = {
-        'q': search,
-        'page': '1',
-    }
+def make_request(search_query):
+    current_page = 1
+    all_results = []
 
-    response = requests.get('https://scraping-trial-test.vercel.app/api/search', params=params, headers=headers)
-    
-    try:
-        data = response.json()
-        open("api_response.json", "w").write(json.dumps(data, indent=2))
-    except Exception:
-        print(f"Error: {response.status_code}")
-        print(response.text)
+    while True:
+        print(f"Getting token for page {current_page}...")
+        token = get_recaptcha_token()
+        
+        if not token:
+            print("Failed to get token.")
+            break
+
+        headers = {
+            'accept': '*/*',
+            'accept-language': 'en-US,en;q=0.9',
+            'cache-control': 'no-cache',
+            'pragma': 'no-cache',
+            'priority': 'u=1, i',
+            'referer': 'https://scraping-trial-test.vercel.app/',
+            'sec-ch-ua': '"Not(A:Brand";v="8", "Chromium";v="144", "Microsoft Edge";v="144"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0',
+            'x-recaptcha-token': token,
+        }
+
+        params = {
+            'q': search_query,
+            'page': str(current_page),
+        }
+
+        print(f"Fetching page {current_page}...")
+
+        response = requests.get('https://scraping-trial-test.vercel.app/api/search', params=params, headers=headers)
+        
+
+        if response.status_code == 200:
+            data = response.json()
+            
+            for item in data.get('results', []):
+                all_results.append({
+                    "businessName": item.get("businessName"),
+                    "registrationId": item.get("registrationId"),
+                    "status": item.get("status"),
+                    "filingDate": item.get("filingDate"),
+                    "agent": item.get("agent")
+                })
+            
+            filename = f"{search_query}.json"
+            with open(filename, "w") as f:
+                f.write(json.dumps(all_results, indent=2))
+            
+            print(f"Page {current_page} processed. Total results so far: {len(all_results)}. Saved to {filename}")
+
+            if current_page >= data.get('totalPages', 1):
+                print("Reached the last page. Stopping.")
+                break
+            
+            current_page += 1            
+        else:
+            print(f"Error: {response.status_code}")
+            print(response.text)
+            break
 
 if __name__ == "__main__":
-    # Before everything else, enter the search query
-    search = input("Enter search query: ")
-
-    # Token only lasts temporarily, so we need the search query to be entered first
-    token = get_recaptcha_token()
-    if token and search:
-        make_request(token, search)
+    search_query = input("Enter search query: ")
+    if search_query:
+        make_request(search_query)
