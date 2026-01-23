@@ -1,136 +1,216 @@
 import json
+import time
+import random
 import requests
+import os
+import sys
 from playwright.sync_api import sync_playwright
 
-URL = "https://scraping-trial-test.vercel.app/"
+# Constants
+BASE_URL = "https://scraping-trial-test.vercel.app"
+API_URL = f"{BASE_URL}/api/search"
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
-def get_recaptcha_token():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context(
-            user_agent=USER_AGENT
-        )
-        page = context.new_page()
-        
-        page.goto(URL)
+MAX_RETRIES = 3
 
-        print("Waiting for reCAPTCHA...")
-        
-        try:
-            frame_locator = page.frame_locator('iframe[src*="/api2/anchor"]')
-            checkbox = frame_locator.locator('.recaptcha-checkbox-border')
-            
-            checkbox.wait_for(timeout=10000)
-            print("Found checkbox, clicking...")
-            checkbox.click()
-        except Exception as e:
-            print(f"Auto-click failed (might not be needed or frame different): {e}")
+class BusinessSearchScraper:
 
-        print("Please solve the CAPTCHA manually if the challenge appears...")
-        
-        try:
-            page.wait_for_function(
-                "document.querySelector('#g-recaptcha-response') && document.querySelector('#g-recaptcha-response').value.length > 0",
-                timeout=120000
-            )
-        except Exception:
-            print("Timeout waiting for CAPTCHA solution.")
-            browser.close()
-            return None
-
-        token = page.evaluate("document.querySelector('#g-recaptcha-response').value")
-        print("Token retrieved successfully!")
-        
-        browser.close()
-        return token
-
-def make_request(search_query):
-    current_page = 1
-    all_results = []
-    session_id = None
-    
-    print(f"Getting initial token...")
-    token = get_recaptcha_token()
-    if not token:
-        print("Failed to get token.")
-        return
-
-    while True:
-        headers = {
+    def __init__(self, query):
+        self.query = query
+        self.filename = f"{query}.json"
+        self.results = []
+        self.seen_ids = set()
+        self.page = 1
+        self.session_id = None
+        self.headers = {
             'accept': '*/*',
             'accept-language': 'en-US,en;q=0.9',
-            'cache-control': 'no-cache',
-            'pragma': 'no-cache',
-            'priority': 'u=1, i',
-            'referer': 'https://scraping-trial-test.vercel.app/',
-            'sec-ch-ua': '"Not(A:Brand";v="8", "Chromium";v="144", "Microsoft Edge";v="144"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
-            'sec-fetch-dest': 'empty',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-origin',
+            'referer': f'{BASE_URL}/',
             'user-agent': USER_AGENT,
         }
 
-        if current_page == 1:
-            headers['x-recaptcha-token'] = token
-        elif session_id:
-            headers['x-search-session'] = session_id
+    def load_state(self):
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r') as f:
+                    self.results = json.load(f)
+                
+                self.seen_ids = {item.get('registration_id') for item in self.results}
+                self.page = (len(self.results) // 20) + 1
+                print(f"Resuming from page {self.page} ({len(self.results)} results loaded).")
+            except Exception as e:
+                print(f"Could not load existing file ({e}). Starting fresh.")
         else:
-            print("Error: No session ID found for pagination.")
-            break
+            print("Starting fresh search.")
 
-        params = {
-            'q': search_query,
-            'page': str(current_page),
-        }
+    def get_recaptcha_token(self):
+        print("Launching browser to solve reCAPTCHA...")
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=False)
+            context = browser.new_context(user_agent=USER_AGENT)
+            page = context.new_page()
+            
+            try:
+                page.goto(f"{BASE_URL}/")
+                print("Waiting for reCAPTCHA...")
 
-        print(f"Fetching page {current_page}...")
-        response = requests.get('https://scraping-trial-test.vercel.app/api/search', params=params, headers=headers)
+                try:
+                    frame = page.frame_locator('iframe[src*="/api2/anchor"]')
+                    checkbox = frame.locator('.recaptcha-checkbox-border')
+                    checkbox.wait_for(timeout=10000)
+                    checkbox.click()
+                    print("Clicked reCAPTCHA checkbox.")
+                except Exception:
+                    print("Could not auto-click (checkbox might not be visible).")
 
+                print("Please manually solve the CAPTCHA if presented...")
+                
+                page.wait_for_function(
+                    "document.querySelector('#g-recaptcha-response') && document.querySelector('#g-recaptcha-response').value.length > 0",
+                    timeout=120000
+                )
+                
+                token = page.evaluate("document.querySelector('#g-recaptcha-response').value")
+                print("Token acquired successfully.")
+                browser.close()
+                return token
+                
+            except Exception as e:
+                print(f"Error getting token: {e}")
+                browser.close()
+                return None
+
+    def refresh_session(self):
+        print("Refreshing session...")
+        token = self.get_recaptcha_token()
+        if not token:
+            raise Exception("Failed to retrieve reCAPTCHA token.")
         
-
-
+        auth_headers = self.headers.copy()
+        auth_headers['x-recaptcha-token'] = token
+        auth_headers.pop('x-search-session', None)
+        
+        params = {'q': self.query, 'page': '1'}
+        response = requests.get(API_URL, params=params, headers=auth_headers)
+        
         if response.status_code == 200:
             data = response.json()
-            
-            if current_page == 1:
-                session_id = data.get('session')
-                if session_id:
-                    print(f"Session established: {session_id}")
+            new_session = data.get('session')
+            if new_session:
+                self.session_id = new_session
+                self.headers['x-search-session'] = self.session_id
+                print(f"New session established: {self.session_id}")
+            else:
+                print("Warning: No session ID returned in refresh response.")
+        else:
+            print(f"Failed to refresh session. Status: {response.status_code}")
+            raise Exception(f"Session refresh failed: {response.status_code}")
+
+    def fetch_page(self):
+        attempts = 0
+        while attempts < MAX_RETRIES:
+            try:
+                delay = random.uniform(1.0, 3.0)
+                time.sleep(delay)
+                
+                params = {'q': self.query, 'page': str(self.page)}
+                print(f"Fetching page {self.page}...")
+                
+                response = requests.get(API_URL, params=params, headers=self.headers, timeout=15)
+                
+                if response.status_code == 200:
+                    return response.json()
+                
+                elif response.status_code == 403:
+                    print("Session expired (403). Re-authenticating...")
+                    try:
+                        self.refresh_session()
+                        attempts += 1
+                        continue
+                    except Exception as e:
+                        print(f"Re-authentication failed: {e}")
+                        break
+                
+                elif response.status_code >= 500:
+                    print(f"Server error {response.status_code}. Retrying...")
+                    attempts += 1
+                    time.sleep(2 * attempts)
+                    
                 else:
-                    print("Warning: No session ID returned in page 1 response.")
+                    print(f"Error {response.status_code}: {response.text}")
+                    break
 
-            for item in data.get('results', []):
+            except requests.RequestException as e:
+                print(f"Network error: {e}")
+                attempts += 1
+                time.sleep(2)
+        
+        return None
 
-                agent_info = item.get("agent", {})
-                all_results.append({
-                    "business_name": item.get("businessName"),
-                    "registration_id": item.get("registrationId"),
-                    "status": item.get("status"),
-                    "filing_date": item.get("filingDate"),
-                    "agent_name": agent_info.get("name"),
-                    "agent_address": agent_info.get("address"),
-                    "agent_email": agent_info.get("email")
-                })
+    def process_and_save(self, data):
+        new_results = []
+        for item in data.get('results', []):
+            reg_id = item.get("registrationId")
+            if reg_id in self.seen_ids:
+                continue
+
+            agent = item.get("agent", {})
+            record = {
+                "business_name": item.get("businessName"),
+                "registration_id": reg_id,
+                "status": item.get("status"),
+                "filing_date": item.get("filingDate"),
+                "agent_name": agent.get("name"),
+                "agent_address": agent.get("address"),
+                "agent_email": agent.get("email")
+            }
+            new_results.append(record)
+            self.seen_ids.add(reg_id)
+        
+        self.results.extend(new_results)
+        
+        temp_file = f"{self.filename}.tmp"
+        with open(temp_file, 'w') as f:
+            json.dump(self.results, f, indent=2)
+        os.replace(temp_file, self.filename)
+        
+        print(f"Processed {len(new_results)} items. Total saved: {len(self.results)}")
+
+    def run(self):
+        self.load_state()
+        
+        if not self.session_id:
+             try:
+                 print("Initializing session...")
+                 self.refresh_session()
+             except Exception:
+                 print("Could not initialize session. Exiting.")
+                 return
+
+        while True:
+            data = self.fetch_page()
+            if not data:
+                print("Failed to retrieve data. Stopping.")
+                break
+                
+            self.process_and_save(data)
             
-            filename = f"{search_query}.json"
-            with open(filename, "w") as f:
-                f.write(json.dumps(all_results, indent=2))
-            
-            print(f"Page {current_page} processed. Total results so far: {len(all_results)}. Saved to {filename}")
-
-            if current_page >= data.get('totalPages', 1):
-                print("Reached the last page. Stopping.")
+            total_pages = data.get('totalPages', 1)
+            if self.page >= total_pages:
+                print("Reached the last page. Scraping complete.")
                 break
             
-            current_page += 1            
-        else:
-            print(f"Error: {response.status_code}")
-            print(response.text)
-            break
+            self.page += 1
 
 if __name__ == "__main__":
-    search_query = input("Enter search query: ")
-    if search_query:
-        make_request(search_query)
+    try:
+        query = input("Enter search query: ").strip()
+        if not query:
+            print("Query cannot be empty.")
+            sys.exit(1)
+            
+        scraper = BusinessSearchScraper(query)
+        scraper.run()
+        
+    except KeyboardInterrupt:
+        print("\nScraping interrupted by user. Progress saved.")
+        sys.exit(0)
