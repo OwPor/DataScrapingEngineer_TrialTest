@@ -3,12 +3,12 @@ import requests
 from playwright.sync_api import sync_playwright
 
 URL = "https://scraping-trial-test.vercel.app/"
-
+USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
 def get_recaptcha_token():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         context = browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'
+            user_agent=USER_AGENT
         )
         page = context.new_page()
         
@@ -31,7 +31,7 @@ def get_recaptcha_token():
         try:
             page.wait_for_function(
                 "document.querySelector('#g-recaptcha-response') && document.querySelector('#g-recaptcha-response').value.length > 0",
-                timeout=60000
+                timeout=120000
             )
         except Exception:
             print("Timeout waiting for CAPTCHA solution.")
@@ -44,20 +44,18 @@ def get_recaptcha_token():
         browser.close()
         return token
 
-
-
 def make_request(search_query):
     current_page = 1
     all_results = []
+    session_id = None
+    
+    print(f"Getting initial token...")
+    token = get_recaptcha_token()
+    if not token:
+        print("Failed to get token.")
+        return
 
     while True:
-        print(f"Getting token for page {current_page}...")
-        token = get_recaptcha_token()
-        
-        if not token:
-            print("Failed to get token.")
-            break
-
         headers = {
             'accept': '*/*',
             'accept-language': 'en-US,en;q=0.9',
@@ -71,9 +69,16 @@ def make_request(search_query):
             'sec-fetch-dest': 'empty',
             'sec-fetch-mode': 'cors',
             'sec-fetch-site': 'same-origin',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 Edg/144.0.0.0',
-            'x-recaptcha-token': token,
+            'user-agent': USER_AGENT,
         }
+
+        if current_page == 1:
+            headers['x-recaptcha-token'] = token
+        elif session_id:
+            headers['x-search-session'] = session_id
+        else:
+            print("Error: No session ID found for pagination.")
+            break
 
         params = {
             'q': search_query,
@@ -81,20 +86,32 @@ def make_request(search_query):
         }
 
         print(f"Fetching page {current_page}...")
-
         response = requests.get('https://scraping-trial-test.vercel.app/api/search', params=params, headers=headers)
+
         
+
 
         if response.status_code == 200:
             data = response.json()
             
+            if current_page == 1:
+                session_id = data.get('session')
+                if session_id:
+                    print(f"Session established: {session_id}")
+                else:
+                    print("Warning: No session ID returned in page 1 response.")
+
             for item in data.get('results', []):
+
+                agent_info = item.get("agent", {})
                 all_results.append({
-                    "businessName": item.get("businessName"),
-                    "registrationId": item.get("registrationId"),
+                    "business_name": item.get("businessName"),
+                    "registration_id": item.get("registrationId"),
                     "status": item.get("status"),
-                    "filingDate": item.get("filingDate"),
-                    "agent": item.get("agent")
+                    "filing_date": item.get("filingDate"),
+                    "agent_name": agent_info.get("name"),
+                    "agent_address": agent_info.get("address"),
+                    "agent_email": agent_info.get("email")
                 })
             
             filename = f"{search_query}.json"
