@@ -74,6 +74,7 @@ def make_request(token, search):
     
     try:
         data = response.json()
+        open("api_response.json", "w").write(json.dumps(data, indent=2))
     except Exception:
         print(f"Error: {response.status_code}")
         print(response.text)
