@@ -1,16 +1,34 @@
 import sys
 from BusinessSearchScraper import BusinessSearchScraper
 
-if __name__ == "__main__":
+DEFAULT_QUERY = "tech"
+
+
+def main():
+    query = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_QUERY
+    headless = "--no-headless" not in sys.argv
+
+    print(f"Data Scraping Engineer — Trial Test")
+    print(f"Query: '{query}' | Headless: {headless}")
+    print()
+
+    scraper = BusinessSearchScraper(query, headless=headless)
+
     try:
-        query = input("Enter search query: ").strip()
-        if not query:
-            print("Query cannot be empty.")
-            sys.exit(1)
-            
-        scraper = BusinessSearchScraper(query)
-        scraper.run()
-        
-    except KeyboardInterrupt:
-        print("\nScraping interrupted by user. Progress saved.")
+        count = scraper.run()
+        print(f"Done. {count} records scraped.")
         sys.exit(0)
+    except KeyboardInterrupt:
+        print("\nInterrupted. Saving partial results...")
+        scraper.exporter.save()
+        sys.exit(0)
+    except Exception as e:
+        print(f"\nFatal error: {e}")
+        if scraper.exporter.results:
+            print("Saving partial results before exit...")
+            scraper.exporter.save()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

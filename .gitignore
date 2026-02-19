@@ -1,1 +1,4 @@
-/__pycache__
+__pycache__/
+vosk-model/
+vosk-model.zip
+*.tmp

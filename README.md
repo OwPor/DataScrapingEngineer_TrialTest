@@ -1,50 +1,58 @@
-## Data Scraping Engineer – Trial Test 
+## Data Scraping Engineer — Trial Test
 
-- **Auto-Authentication**: Uses Playwright to solve reCAPTCHA v2 and retrieve session tokens.
-- **Session Management**: Automatically refreshes expired sessions (handles `403` errors) without restarting the script.
-- **Politeness**: Random delays between requests to mimic human behavior.
-- **Clean Output**: Saves data in a structured JSON format with flattened fields.
+Automated web scraper with **audio reCAPTCHA solving**, **API-first architecture**, and **dual-format output** (JSON + CSV).
 
-## Requirements
-- Python 3.7+
-- Playwright
-- Requests
+### Architecture
 
-## Installation
-
-
-1. **Install Python dependencies:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Install Playwright browsers:**
-   ```bash
-   playwright install chromium
-   ```
-
-## Usage
-
-Run the script:
-```bash
-python main.py
+```
+main.py                  → CLI entry point
+BusinessSearchScraper.py → Orchestrator
+├── captcha_solver.py    → Audio reCAPTCHA solver (Vosk offline STT)
+├── api_client.py        → Session management + HTTP data fetching
+└── data_exporter.py     → CSV + JSON output with integrity checks
 ```
 
-1. Enter your search query (e.g., `tech`).
-2. A browser window will open.
-3. If the "I'm not a robot" checkbox is not clicked automatically, click it.
-4. Solve the image puzzle if challenged.
-5. The browser will close automatically once the token is captured.
-6. The script will proceed to scrape all pages.
+### Key Features
 
-## Design Choices
+- **Audio reCAPTCHA Solving** — Uses Vosk (offline speech-to-text) to automatically solve reCAPTCHA v2 audio challenges. No AI APIs, no manual interaction, completely free.
+- **API-First Architecture** — Playwright used only for CAPTCHA solving. All data extraction goes through the site's REST API using `requests`, making scraping fast and reliable.
+- **One-Run Reliability** — Fully automated from start to finish. Auto re-authenticates on session expiry (up to 3 retries). Handles 5xx errors with exponential backoff.
+- **Structured Output** — Outputs both `JSON` and `CSV` with deduplication, atomic writes, and post-export integrity verification. CSV uses BOM for Excel compatibility.
 
-* **Hybrid Architecture (Playwright + Requests):** I used **Playwright** specifically to handle the dynamic reCAPTCHA v2 challenge and retrieve session cookies. Once authenticated, the script switches to **Requests** for the actual data extraction. This combines the reliability of a browser for login with the speed and efficiency of standard HTTP requests for pagination.
-* **Resilient Session Handling:** The solution includes a self-healing mechanism. If the session token expires during scraping (causing a `403` error), the script automatically pauses, re-launches the browser to get a fresh token, and resumes exactly where it left off.
-* **Politeness:** Implemented randomized delays between requests to adhere to ethical scraping guidelines and prevent rate-limiting.
+### Prerequisites
 
-## Output
-Data is saved to `{query}.json` (e.g., `tech.json`). The format is:
+- Python 3.8+
+- [FFmpeg](https://ffmpeg.org/download.html) (required by pydub for MP3→WAV conversion)
+  - Windows: `winget install FFmpeg` or download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
+  - Add to PATH
+
+### Installation
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+The Vosk speech model (~50 MB) downloads automatically on first run.
+
+### Usage
+
+```bash
+# Default query "tech"
+python main.py
+
+# Custom query
+python main.py "consulting"
+
+# Visible browser (for debugging)
+python main.py "tech" --no-headless
+```
+
+### Output
+
+Results saved to `output/` directory:
+
+**JSON** (`output/tech.json`):
 ```json
 [
   {
@@ -54,7 +62,23 @@ Data is saved to `{query}.json` (e.g., `tech.json`). The format is:
     "filing_date": "1999-12-04",
     "agent_name": "Sara Smith",
     "agent_address": "1545 Maple Ave",
-    "agent_email": "..."
+    "agent_email": "sara.smith...@example.com"
   }
 ]
 ```
+
+**CSV** (`output/tech.csv`):
+```
+business_name,registration_id,status,filing_date,agent_name,agent_address,agent_email
+Silver Tech CORP,SD0000001,Active,1999-12-04,Sara Smith,1545 Maple Ave,sara.smith...@example.com
+```
+
+### Design Choices
+
+| Concern | Decision | Reasoning |
+|---------|----------|-----------|
+| CAPTCHA | Vosk offline STT | Free, no API keys, works offline, ~50 MB model |
+| HTTP | `requests` library | Lightweight, fast, sufficient for REST API |
+| Browser | Playwright (headless) | Only for CAPTCHA iframe. Not used for data extraction |
+| Output | JSON + CSV, atomic writes | Prevents corrupt files if interrupted mid-write |
+| Reliability | Auto re-auth + retry | Session expiry handled transparently |

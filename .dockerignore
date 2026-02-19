@@ -1,0 +1,11 @@
+__pycache__/
+vosk-model/
+vosk-model.zip
+*.tmp
+*.pyc
+.git/
+.gitignore
+curl.txt
+nextpage_curl.txt
+tech.json
+Data-Scraping-Engineer-Trial-Test.pdf
