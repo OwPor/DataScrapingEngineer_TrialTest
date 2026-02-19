@@ -19,34 +19,41 @@ BusinessSearchScraper.py → Orchestrator
 - **One-Run Reliability** — Fully automated from start to finish. Auto re-authenticates on session expiry (up to 3 retries). Handles 5xx errors with exponential backoff.
 - **Structured Output** — Outputs both `JSON` and `CSV` with deduplication, atomic writes, and post-export integrity verification. CSV uses BOM for Excel compatibility.
 
-### Prerequisites
+### Quick Start (Docker — Recommended)
 
-- Python 3.8+
-- [FFmpeg](https://ffmpeg.org/download.html) (required by pydub for MP3→WAV conversion)
-  - Windows: `winget install FFmpeg` or download from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
-  - Add to PATH
+Everything bundled: Python, FFmpeg, Chromium, Vosk model. Zero local setup.
 
-### Installation
+```bash
+# Build
+docker build -t scraper .
+
+# Run (default query: "tech")
+docker run --rm -v ./output:/app/output scraper
+
+# Custom query
+docker run --rm -v ./output:/app/output scraper "consulting"
+```
+
+Results appear in your local `output/` folder.
+
+---
+
+### Local Setup (Alternative)
+
+**Prerequisites**: Python 3.8+, [FFmpeg](https://ffmpeg.org/download.html) (in PATH)
 
 ```bash
 pip install -r requirements.txt
 playwright install chromium
 ```
 
-The Vosk speech model (~50 MB) downloads automatically on first run.
-
-### Usage
-
 ```bash
-# Default query "tech"
-python main.py
-
-# Custom query
-python main.py "consulting"
-
-# Visible browser (for debugging)
-python main.py "tech" --no-headless
+python main.py              # default "tech"
+python main.py "consulting" # custom query
+python main.py "tech" --no-headless  # visible browser
 ```
+
+The Vosk speech model (~50 MB) downloads automatically on first run.
 
 ### Output
 
@@ -80,5 +87,8 @@ Silver Tech CORP,SD0000001,Active,1999-12-04,Sara Smith,1545 Maple Ave,sara.smit
 | CAPTCHA | Vosk offline STT | Free, no API keys, works offline, ~50 MB model |
 | HTTP | `requests` library | Lightweight, fast, sufficient for REST API |
 | Browser | Playwright (headless) | Only for CAPTCHA iframe. Not used for data extraction |
+| Audio | FFmpeg (subprocess) | Direct MP3→WAV, avoids pydub/audioop Python 3.13 issues |
 | Output | JSON + CSV, atomic writes | Prevents corrupt files if interrupted mid-write |
 | Reliability | Auto re-auth + retry | Session expiry handled transparently |
+| Deploy | Docker | All deps baked in, reproducible across environments |
+
