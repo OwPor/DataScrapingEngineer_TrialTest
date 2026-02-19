@@ -1,65 +1,78 @@
-## Data Scraping Engineer — Trial Test
+## Data Scraping Engineer – Trial Test
 
-Automated web scraper with **audio reCAPTCHA solving**, **API-first architecture**, and **dual-format output** (JSON + CSV).
+- **Automated Audio reCAPTCHA:** Uses `Playwright` combined with `Vosk` (offline speech-to-text) to automatically solve reCAPTCHA v2 audio challenges with zero manual interaction.
 
-### Architecture
+- **Reverse-Engineered API Architecture:** Bypasses brittle HTML parsing entirely. Uses `Playwright` strictly for the initial authentication, then switches to `requests` to extract data directly from the reverse-engineered internal REST APIs.
 
-```
-main.py                  → CLI entry point
-BusinessSearchScraper.py → Orchestrator
-├── captcha_solver.py    → Audio reCAPTCHA solver (Vosk offline STT)
-├── api_client.py        → Session management + HTTP data fetching
-└── data_exporter.py     → CSV + JSON output with integrity checks
-```
+- **One-Run Reliability:** Fully automated from start to finish. Automatically self-heals by refreshing expired sessions (handling `403` and `5xx` errors) without restarting the script.
 
-### Key Features
+- **Structured Output:** Saves data cleanly in both `JSON` and `CSV` formats using atomic writes to ensure data integrity.
 
-- **Audio reCAPTCHA Solving** — Uses Vosk (offline speech-to-text) to automatically solve reCAPTCHA v2 audio challenges. No AI APIs, no manual interaction, completely free.
-- **API-First Architecture** — Playwright used only for CAPTCHA solving. All data extraction goes through the site's REST API using `requests`, making scraping fast and reliable.
-- **One-Run Reliability** — Fully automated from start to finish. Auto re-authenticates on session expiry (up to 3 retries). Handles 5xx errors with exponential backoff.
-- **Structured Output** — Outputs both `JSON` and `CSV` with deduplication, atomic writes, and post-export integrity verification. CSV uses BOM for Excel compatibility.
+## Requirements
 
-### Quick Start (Docker — Recommended)
+- Python 3.8+
+- Playwright
+- Requests
+- Vosk & FFmpeg (for audio processing)
+- Docker (Recommended for zero-setup execution)
 
-Everything bundled: Python, FFmpeg, Chromium, Vosk model. Zero local setup.
+## Installation
+
+### Option 1: Docker (Recommended)
+
+Everything is bundled (Python, FFmpeg, Chromium, Vosk model) for a zero-setup run.
 
 ```bash
-# Build
 docker build -t scraper .
-
-# Run (default query: "tech")
-docker run --rm -v ./output:/app/output scraper
-
-# Custom query
-docker run --rm -v ./output:/app/output scraper "consulting"
+docker run --rm -v "${PWD}/output:/app/output" scraper "tech"
 ```
 
-Results appear in your local `output/` folder.
+### Option 2: Local Setup
 
----
+**System Dependencies:** Ensure FFmpeg is installed and added to your system PATH.
 
-### Local Setup (Alternative)
-
-**Prerequisites**: Python 3.8+, [FFmpeg](https://ffmpeg.org/download.html) (in PATH)
+Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
+```
+
+Install Playwright browsers:
+
+```bash
 playwright install chromium
 ```
 
+## Usage
+
 ```bash
-python main.py              # default "tech"
-python main.py "consulting" # custom query
-python main.py "tech" --no-headless  # visible browser
+# Docker
+docker run --rm -v "${PWD}/output:/app/output" scraper "tech"
+
+# Local (defaults to "tech" if no query given)
+python main.py
+python main.py "consulting"
 ```
 
-The Vosk speech model (~50 MB) downloads automatically on first run.
+1. The script initializes a headless browser and navigates to the target site.
+2. It automatically requests the audio challenge and solves it using the Vosk STT model.
+3. Once the session token is captured, the browser closes.
+4. The script directly queries the internal REST API to scrape all paginated results autonomously.
 
-### Output
+## Design Choices
 
-Results saved to `output/` directory:
+- **API-First Architecture:** I used Playwright specifically to handle the dynamic reCAPTCHA v2 challenge and retrieve session cookies. Once authenticated, the script switches to Requests to hit the internal JSON endpoints. This avoids HTML parsing entirely, combining the reliability of a browser for login with the speed of an API for data extraction.
 
-**JSON** (`output/tech.json`):
+- **Fully Automated Audio Solver:** To ensure a true "one-run" execution, I replaced manual image puzzle solving with an automated audio-challenge workflow using Vosk. This handles the CAPTCHA entirely offline without needing paid third-party APIs.
+
+- **Resilient Session Handling:** The solution includes a self-healing mechanism. If the session token expires during scraping, the script automatically pauses, re-authenticates to get a fresh token, and resumes exactly where it left off.
+
+- **Data Integrity:** I implemented atomic writes for both the JSON and CSV outputs. This prevents file corruption if the scraper is ever forcefully stopped mid-write.
+
+## Output
+
+Data is saved to the `output/` directory (e.g., `output/tech.json` and `output/tech.csv`). The JSON format is:
+
 ```json
 [
   {
@@ -73,22 +86,3 @@ Results saved to `output/` directory:
   }
 ]
 ```
-
-**CSV** (`output/tech.csv`):
-```
-business_name,registration_id,status,filing_date,agent_name,agent_address,agent_email
-Silver Tech CORP,SD0000001,Active,1999-12-04,Sara Smith,1545 Maple Ave,sara.smith...@example.com
-```
-
-### Design Choices
-
-| Concern | Decision | Reasoning |
-|---------|----------|-----------|
-| CAPTCHA | Vosk offline STT | Free, no API keys, works offline, ~50 MB model |
-| HTTP | `requests` library | Lightweight, fast, sufficient for REST API |
-| Browser | Playwright (headless) | Only for CAPTCHA iframe. Not used for data extraction |
-| Audio | FFmpeg (subprocess) | Direct MP3→WAV, avoids pydub/audioop Python 3.13 issues |
-| Output | JSON + CSV, atomic writes | Prevents corrupt files if interrupted mid-write |
-| Reliability | Auto re-auth + retry | Session expiry handled transparently |
-| Deploy | Docker | All deps baked in, reproducible across environments |
-

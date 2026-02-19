@@ -13,6 +13,16 @@ FIELD_ORDER = [
     "agent_email",
 ]
 
+CSV_HEADERS = {
+    "business_name": "Business Name",
+    "registration_id": "Registration ID",
+    "status": "Status",
+    "filing_date": "Filing Date",
+    "agent_name": "Agent Name",
+    "agent_address": "Agent Address",
+    "agent_email": "Agent Email",
+}
+
 
 class DataExporter:
 
@@ -69,11 +79,12 @@ class DataExporter:
 
     def _save_csv(self):
         tmp_path = self.csv_path + ".tmp"
+        display_headers = [CSV_HEADERS[f] for f in FIELD_ORDER]
         with open(tmp_path, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.DictWriter(f, fieldnames=FIELD_ORDER, extrasaction='ignore')
-            writer.writeheader()
+            writer = csv.writer(f)
+            writer.writerow(display_headers)
             for record in self.results:
-                writer.writerow(record)
+                writer.writerow([record.get(f, "") for f in FIELD_ORDER])
         os.replace(tmp_path, self.csv_path)
         print(f"[EXPORT] CSV saved: {self.csv_path}")
 
@@ -122,9 +133,10 @@ class DataExporter:
                     f"CSV record count mismatch: file={len(csv_rows)}, "
                     f"memory={len(self.results)}"
                 )
-            if reader.fieldnames != FIELD_ORDER:
+            expected_headers = [CSV_HEADERS[f] for f in FIELD_ORDER]
+            if reader.fieldnames != expected_headers:
                 errors.append(
-                    f"CSV header mismatch: expected {FIELD_ORDER}, "
+                    f"CSV header mismatch: expected {expected_headers}, "
                     f"got {reader.fieldnames}"
                 )
         except Exception as e:
