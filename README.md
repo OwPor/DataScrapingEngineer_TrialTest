@@ -6,6 +6,8 @@
 
 - **One-Run Reliability:** Fully automated from start to finish. Automatically self-heals by refreshing expired sessions (handling `403` and `5xx` errors) without restarting the script.
 
+- **Concurrent Scraping:** Uses threaded workers to fetch multiple pages in parallel, significantly reducing total scrape time for large result sets.
+
 - **Structured Output:** Saves data cleanly in both `JSON` and `CSV` formats using atomic writes to ensure data integrity.
 
 ## Requirements
@@ -57,15 +59,17 @@ python main.py "consulting"
 1. The script initializes a headless browser and navigates to the target site.
 2. It automatically requests the audio challenge and solves it using the Vosk STT model.
 3. Once the session token is captured, the browser closes.
-4. The script directly queries the internal REST API to scrape all paginated results autonomously.
+4. The script fetches the first page to determine total results, then scrapes all remaining pages concurrently using threaded workers.
 
 ## Design Choices
 
-- **API-First Architecture:** I used Playwright specifically to handle the dynamic reCAPTCHA v2 challenge and retrieve session cookies. Once authenticated, the script switches to Requests to hit the internal JSON endpoints. This avoids HTML parsing entirely, combining the reliability of a browser for login with the speed of an API for data extraction.
+- **Reverse-Engineered API Architecture:** I used `Playwright` specifically to handle the dynamic reCAPTCHA v2 challenge and retrieve session cookies. Once authenticated, the script switches to `requests` to hit the reverse-engineered internal JSON endpoints. This avoids HTML parsing entirely, combining the reliability of a browser for login with the speed of an API for data extraction.
 
 - **Fully Automated Audio Solver:** To ensure a true "one-run" execution, I replaced manual image puzzle solving with an automated audio-challenge workflow using Vosk. This handles the CAPTCHA entirely offline without needing paid third-party APIs.
 
-- **Resilient Session Handling:** The solution includes a self-healing mechanism. If the session token expires during scraping, the script automatically pauses, re-authenticates to get a fresh token, and resumes exactly where it left off.
+- **Threaded Page Fetching:** After the first page is fetched to discover total pages, the remaining pages are scraped concurrently using a `ThreadPoolExecutor`. This provides a ~3x speedup for large result sets while keeping request rates reasonable.
+
+- **Resilient Session Handling:** The solution includes a self-healing mechanism. If the session token expires during scraping, the script automatically re-authenticates, reduces the worker count to avoid further rate limiting, and retries only the failed pages.
 
 - **Data Integrity:** I implemented atomic writes for both the JSON and CSV outputs. This prevents file corruption if the scraper is ever forcefully stopped mid-write.
 

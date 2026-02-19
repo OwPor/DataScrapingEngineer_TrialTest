@@ -1,6 +1,7 @@
 import os
 import csv
 import json
+import threading
 
 
 FIELD_ORDER = [
@@ -31,6 +32,7 @@ class DataExporter:
         self.output_dir = output_dir
         self.results = []
         self.seen_ids = set()
+        self._lock = threading.Lock()
 
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -44,24 +46,25 @@ class DataExporter:
 
     def add_results(self, api_results):
         new_count = 0
-        for item in api_results:
-            reg_id = item.get("registrationId")
-            if reg_id in self.seen_ids:
-                continue
+        with self._lock:
+            for item in api_results:
+                reg_id = item.get("registrationId")
+                if reg_id in self.seen_ids:
+                    continue
 
-            agent = item.get("agent", {})
-            record = {
-                "business_name": item.get("businessName", ""),
-                "registration_id": reg_id,
-                "status": item.get("status", ""),
-                "filing_date": item.get("filingDate", ""),
-                "agent_name": agent.get("name", ""),
-                "agent_address": agent.get("address", ""),
-                "agent_email": agent.get("email", ""),
-            }
-            self.results.append(record)
-            self.seen_ids.add(reg_id)
-            new_count += 1
+                agent = item.get("agent", {})
+                record = {
+                    "business_name": item.get("businessName", ""),
+                    "registration_id": reg_id,
+                    "status": item.get("status", ""),
+                    "filing_date": item.get("filingDate", ""),
+                    "agent_name": agent.get("name", ""),
+                    "agent_address": agent.get("address", ""),
+                    "agent_email": agent.get("email", ""),
+                }
+                self.results.append(record)
+                self.seen_ids.add(reg_id)
+                new_count += 1
 
         return new_count
 

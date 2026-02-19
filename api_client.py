@@ -53,7 +53,7 @@ class APIClient:
 
         self.session_id = session
         self.headers['x-search-session'] = self.session_id
-        print(f"[API] Session established: {self.session_id[:16]}...")
+        print(f"[API] Session established: {self.session_id}")
         return data
 
     def fetch_page(self, query, page):
@@ -79,10 +79,7 @@ class APIClient:
                     return response.json()
 
                 if response.status_code == 403:
-                    print("[API] Session expired (403).")
-                    self.session_id = None
-                    self.headers.pop('x-search-session', None)
-                    raise SessionExpiredError("Session expired, re-authentication needed")
+                    raise SessionExpiredError("Session expired (403)")
 
                 if response.status_code >= 500:
                     wait = 2 ** attempt
